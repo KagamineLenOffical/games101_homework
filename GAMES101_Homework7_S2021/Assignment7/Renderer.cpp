@@ -3,6 +3,7 @@
 //
 
 #include <fstream>
+#include <thread>
 #include "Scene.hpp"
 #include "Renderer.hpp"
 
@@ -21,27 +22,74 @@ void Renderer::Render(const Scene& scene)
     float scale = tan(deg2rad(scene.fov * 0.5));
     float imageAspectRatio = scene.width / (float)scene.height;
     Vector3f eye_pos(278, 273, -800);
-    int m = 0;
+    //int m = 0;
 
     // change the spp value to change sample ammount
-    int spp = 16;
+    int spp = 64;
     std::cout << "SPP: " << spp << "\n";
-    for (uint32_t j = 0; j < scene.height; ++j) {
-        for (uint32_t i = 0; i < scene.width; ++i) {
-            // generate primary ray direction
-            float x = (2 * (i + 0.5) / (float)scene.width - 1) *
-                      imageAspectRatio * scale;
-            float y = (1 - 2 * (j + 0.5) / (float)scene.height) * scale;
 
-            Vector3f dir = normalize(Vector3f(-x, y, 1));
-            for (int k = 0; k < spp; k++){
-                framebuffer[m] += scene.castRay(Ray(eye_pos, dir), 0) / spp;  
+    //multi-thread part
+    int thread_num = std::thread::hardware_concurrency();
+    if(thread_num == 0) thread_num = 8;
+
+    std::cout<<"thread_num:"<<thread_num<<std::endl;
+    std::vector<std::thread> threads;
+
+    //deal with progress bar
+    std::atomic<int> finish_height = 0;
+    float reciprocal_height = 1.f/scene.height;
+    std::mutex output_mtx;
+
+    auto ray_casting = [&](const int &l, const int &r){
+        for (uint32_t j = l; j < r; ++j) {
+            for (uint32_t i = 0; i < scene.width; ++i) {
+                // generate primary ray direction
+                float x = (2 * (i + 0.5) / (float)scene.width - 1) *
+                          imageAspectRatio * scale;
+                float y = (1 - 2 * (j + 0.5) / (float)scene.height) * scale;
+                int m = j * scene.width + i;
+                Vector3f dir = normalize(Vector3f(-x, y, 1));
+                for (int k = 0; k < spp; k++){
+                    framebuffer[m] += scene.castRay(Ray(eye_pos, dir), 0) / spp;
+                }
+                //m++;
             }
-            m++;
+            finish_height++;
+            //assert(finish_height <= scene.height);
+            UpdateProgress(finish_height * reciprocal_height, output_mtx);
         }
-        UpdateProgress(j / (float)scene.height);
+    };
+    int part = scene.height/thread_num;
+    for(int i=0;i<thread_num;i++){
+        int l = part * i;
+        int r = part * (i + 1);
+        if(i == thread_num - 1){
+            r = scene.height;
+        }
+        printf("thread_bound[l,r]:[%d,%d]\n",l,r);
+        threads.emplace_back(ray_casting,l,r);
+    }
+    for(int i=0;i<thread_num;i++){
+        threads[i].join();
     }
     UpdateProgress(1.f);
+//    int m=0;
+//    for (uint32_t j = 0; j < scene.height; ++j) {
+//        for (uint32_t i = 0; i < scene.width; ++i) {
+//            // generate primary ray direction
+//            float x = (2 * (i + 0.5) / (float)scene.width - 1) *
+//                      imageAspectRatio * scale;
+//            float y = (1 - 2 * (j + 0.5) / (float)scene.height) * scale;
+//
+//            Vector3f dir = normalize(Vector3f(-x, y, 1));
+//            for (int k = 0; k < spp; k++){
+//                framebuffer[m] += scene.castRay(Ray(eye_pos, dir), 0) / spp;
+//            }
+//            m++;
+//        }
+//        UpdateProgress(j / (float)scene.height);
+//    }
+//    UpdateProgress(1.f);
 
     // save framebuffer to file
     FILE* fp = fopen("binary.ppm", "wb");

@@ -30,17 +30,17 @@ inline  bool solveQuadratic(const float &a, const float &b, const float &c, floa
 
 inline float get_random_float()
 {
-    std::random_device dev;
-    std::mt19937 rng(dev());
-    std::uniform_real_distribution<float> dist(0.f, 1.f); // distribution in range [1, 6]
+    static std::random_device dev;
+    static std::mt19937 rng(dev());
+    static std::uniform_real_distribution<float> dist(0.f, 1.f); // distribution in range [1, 6]
 
     return dist(rng);
 }
 
-inline void UpdateProgress(float progress)
+inline void UpdateProgress(float progress,std::mutex &output_mtx)
 {
     int barWidth = 70;
-
+    std::lock_guard guard(output_mtx);
     std::cout << "[";
     int pos = barWidth * progress;
     for (int i = 0; i < barWidth; ++i) {
@@ -51,3 +51,18 @@ inline void UpdateProgress(float progress)
     std::cout << "] " << int(progress * 100.0) << " %\r";
     std::cout.flush();
 };
+
+inline void UpdateProgress(float progress)
+{
+    int barWidth = 70;
+    std::cout << "[";
+    int pos = barWidth * progress;
+    for (int i = 0; i < barWidth; ++i) {
+        if (i < pos) std::cout << "=";
+        else if (i == pos) std::cout << ">";
+        else std::cout << " ";
+    }
+    std::cout << "] " << int(progress * 100.0) << " %\r";
+    std::cout.flush();
+};
+

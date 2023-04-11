@@ -93,6 +93,7 @@ BVHBuildNode* BVHAccel::recursiveBuildSAH(std::vector<Object*> objects)
             std::vector<int> bucket_last_obj_l(bucket_size);
             std::vector<int> bucket_last_obj_r(bucket_size);
             float minn,maxx;
+            //minn = centroidBounds.Centroid()[1];
             switch (i) {
                 case 0:
                     std::sort(objects.begin(), objects.end(), [](auto f1, auto f2) {

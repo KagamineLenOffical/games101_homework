@@ -7,7 +7,7 @@
 
 #include "Vector.hpp"
 
-enum MaterialType { DIFFUSE};
+enum MaterialType { DIFFUSE,MICRO_FACET};
 
 class Material{
 private:
@@ -131,6 +131,17 @@ Vector3f Material::getColorAt(double u, double v) {
 
 Vector3f Material::sample(const Vector3f &wi, const Vector3f &N){
     switch(m_type){
+        case MICRO_FACET:
+        {
+            // uniform sample on the hemisphere
+            float x_1 = get_random_float(), x_2 = get_random_float();
+            float z = std::fabs(1.0f - 2.0f * x_1);
+            float r = std::sqrt(1.0f - z * z), phi = 2 * M_PI * x_2;
+            Vector3f localRay(r*std::cos(phi), r*std::sin(phi), z);
+            return toWorld(localRay, N);
+
+            break;
+        }
         case DIFFUSE:
         {
             // uniform sample on the hemisphere
@@ -147,6 +158,15 @@ Vector3f Material::sample(const Vector3f &wi, const Vector3f &N){
 
 float Material::pdf(const Vector3f &wi, const Vector3f &wo, const Vector3f &N){
     switch(m_type){
+        case MICRO_FACET:
+        {
+            // uniform sample probability 1 / (2 * PI)
+            if (dotProduct(wo, N) > 0.0f)
+                return 0.5f / M_PI;
+            else
+                return 0.0f;
+            break;
+        }
         case DIFFUSE:
         {
             // uniform sample probability 1 / (2 * PI)
@@ -161,6 +181,41 @@ float Material::pdf(const Vector3f &wi, const Vector3f &wo, const Vector3f &N){
 
 Vector3f Material::eval(const Vector3f &wi, const Vector3f &wo, const Vector3f &N){
     switch(m_type){
+        case MICRO_FACET:
+        {
+            float cosalpha = dotProduct(N, wo);
+            if(cosalpha < 0 ){
+                return Vector3f(0.0f);
+            }
+            auto h = (wi + wo).normalized();
+            auto F_function=[](const Vector3f & F0,const Vector3f &h, const Vector3f &v){
+                return F0 + (Vector3f(1.0f)-F0) * pow(1- dotProduct(h,v),5);
+            };
+
+            auto f = F_function(Ks,h,wi);
+
+            float roughness = 0.25f;
+            auto G_function =[](const float &roughness,const Vector3f &l,const Vector3f &v,const Vector3f &n){
+                auto k = (roughness + 1.f) * (roughness + 1.f)/8.f;
+                auto ndotv = dotProduct(n,v);
+                auto ndotl = dotProduct(n,l);
+                return (ndotv/(ndotv * (1-k) + k)) * (ndotl/(ndotl * (1-k) + k));
+            };
+            auto g = G_function(roughness,wi,wo,N);
+            auto D_funcion = [](const float &roughness, const Vector3f &h, const Vector3f &n){
+                auto alpha2 = roughness * roughness;
+                auto cos_theta = dotProduct(n,h);
+                float div = M_PI * pow((cos_theta * cos_theta)*(alpha2 - 1) + 1,2);
+                return alpha2 / div;
+            };
+            auto d = D_funcion(roughness,h,N);
+
+            auto diffuse = Kd / M_PI;
+            auto div = 4 * dotProduct(N, wo) * dotProduct(N, wi);
+            auto specular = f * g * d / div;
+            auto specular_clamp = Vector3f(std::min(1.0f,specular.x),std::min(1.0f,specular.y),std::min(1.0f,specular.z));
+            return diffuse + specular_clamp;
+        }
         case DIFFUSE:
         {
             // calculate the contribution of diffuse   model
